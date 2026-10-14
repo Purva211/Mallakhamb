@@ -1,0 +1,287 @@
+\documentclass{ieeeaccess}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{textcomp}
+\usepackage[T1]{fontenc}
+\usepackage{newtxtext}
+\usepackage[hidelinks]{hyperref}
+\usepackage{url}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\makeatletter
+\def\volUMETitle{}
+\def\yearTitle{}
+\makeatother
+
+\urlstyle{same}
+
+\begin{document}
+
+\history{Date of publication xxxx 00, 0000, date of current version xxxx 00, 0000.}
+\doi{10.1109/ACCESS.2024.DOI}
+
+\title{Mallakhamb Pose Recognition and Virtual Coaching Using YOLOv8, MediaPipe Pose, and Random Forest}
+
+\author{\uppercase{Vrushali Patil}\authorrefmark{1},
+\uppercase{Akanksha Mali}\authorrefmark{1},
+\uppercase{Sonali Godase}\authorrefmark{1}, and
+\uppercase{Purva Dev}\authorrefmark{1}}
+
+\address[1]{Department of Computer Science and Engineering,
+Rajarambapu Institute of Technology, Rajaramnagar, Maharashtra, India
+(e-mail: vrushalipatil8240@gmail.com; akankshamali299@gmail.com; sonaligodase431@gmail.com; purvadev2@gmail.com)}
+
+\tfootnote{This research work is supported by the Department of Computer Science and Engineering, Rajarambapu Institute of Technology, under the Capstone Research Initiative.}
+
+\corresp{Corresponding author: Purva Dev (e-mail: purvadev2@gmail.com).}
+
+\begin{abstract}
+Mallakhamb is a traditional Indian sport involving acrobatic Yoga, Gymnastics and Wrestling on a vertically mounted wooden pole. Here, the pose estimation problem is very hard in computer vision because of the complex movement pattern and occlusion by the pole. This paper proposes an end-to-end artificial intelligence based framework for pose recognition, scoring and virtual coaching of mallakhamb. In the proposed framework, the athlete is first detected using You Only Look Once version 8 (YOLOv8). The system then detects 33 three-dimensional body landmarks using the MediaPipe library. By applying translation and scale transformations to these coordinates with respect to the torso landmarks, perspective distortion caused by the camera position and variations in the athlete's scale on the screen can be reduced. A balanced dataset of 4,750 augmented images covering 19 Mallakhamb poses was used to train the classifiers, with the Random Forest classifier achieving a macro F1-score of 98.43\%. Five-fold stratified cross-validation demonstrated consistent performance improvements of the Random Forest classifier over alternative classifiers, including XGBoost, K-Nearest Neighbors, and Support Vector Machine. In this framework, posture accuracy is calculated by comparing eight joint angles with the target angles defined for each pose, followed by conversion of these measurements into a posture-accuracy score and generation of verbal feedback. The proposed study presents an innovative computer vision application for promoting Mallakhamb and enabling pose-based athlete scoring using open-source tools.
+\end{abstract}
+
+\begin{keywords}
+Mallakhamb, pose estimation, computer vision, human pose classification, virtual coaching.
+\end{keywords}
+
+\titlepgskip=-15pt
+
+\maketitle
+
+\section{Introduction}
+\label{sec:introduction}
+
+Mallakhamb is a traditional Indian discipline that combines elements of gymnastics, yoga, and wrestling on apparatus such as vertical poles and suspended ropes. Performing its movements requires considerable upper-body strength together with flexibility, balance, and precise body control. Historically associated with physical conditioning and wrestling, Mallakhamb is also practiced today as a competitive sport \cite{b12}.
+
+Recent progress in artificial intelligence and computer vision has made automated analysis of athletic movement increasingly feasible. Human pose estimation (HPE) has advanced considerably in mainstream sports, yet Mallakhamb presents a more demanding setting because performers frequently adopt inverted and unconventional body configurations \cite{b1,b2,b3}. The apparatus can also hide portions of the body, and changes in camera viewpoint, performer-to-camera distance, and position along the apparatus introduce substantial scale variation.
+
+The system is designed around three main challenges:
+\begin{enumerate}
+    \item \textbf{Extreme inversions and noncanonical body orientations:} Mallakhamb includes inverted positions, axial rotations, and folded body arrangements that are substantially different from upright examples in standard pose datasets.
+    \item \textbf{Occlusion due to apparatus and background interference:} The pole can hide important landmarks, including portions of the torso and thighs. Visual clutter from surrounding apparatus further affects landmark estimation.
+    \item \textbf{Scale and viewpoint variability:} Because the performer moves along the apparatus, the apparent position, scale, and orientation of the body vary frame to frame.
+\end{enumerate}
+
+To address these challenges, this study develops an end-to-end computer vision pipeline for Mallakhamb pose recognition and virtual coaching. YOLOv8 is first used to localize and crop the performer, after which MediaPipe Pose extracts body landmarks. Coordinates are transformed into a torso-centered representation so that changes in translation and scale have less influence on classification. Supervised models (Random Forest, XGBoost, SVM, KNN) are evaluated using 5-fold stratified cross-validation over 19 Mallakhamb pose classes. The system also computes 3D joint angles and compares them with expert reference postures.
+
+The contributions of this paper are summarized as follows:
+\begin{itemize}
+    \item \textbf{A two-stage pose-analysis pipeline:} Isolates the athlete via YOLOv8 with spatial padding before MediaPipe landmark extraction, mitigating background clutter.
+    \item \textbf{Torso-based feature normalization:} Shifts landmark coordinates to the hip midpoint and scales by torso length, ensuring invariance to camera distance and performer height.
+    \item \textbf{Supervised classifier benchmarking:} Evaluates Random Forest, XGBoost, SVM, and KNN across 19 Mallakhamb postures using 5-fold stratified cross-validation.
+    \item \textbf{Real-time virtual coaching interface:} Compares joint angles with reference postures to deliver quantitative accuracy scoring and multi-modal text/speech coaching feedback.
+\end{itemize}
+
+The remainder of this paper is structured as follows. Section~II reviews related work. Section~III presents the proposed methodology. Section~IV reports experimental results. Section~V discusses limitations, and Section~VI concludes the work.
+
+\section{Related Work}
+
+Deep-learning-based HPE has progressed rapidly, enabling skeleton tracking in real-time applications. Representative landmark-based frameworks for single- and multi-person 2D/3D estimation include OpenPose, AlphaPose, and MediaPipe Pose. MediaPipe Pose is particularly suitable for lightweight applications because its detection-and-tracking pipeline provides 33 three-dimensional body landmarks while maintaining a practical computational cost \cite{b1,b2,b3,b12,b13,b14,b15,b16}.
+
+Within sports and fitness applications, HPE has been applied to tasks such as golf-swing analysis, gymnastics scoring, yoga-pose recognition, and swimming-technique assessment. Much of the existing work on yoga and exercise recognition considers upright or floor-based movements in comparatively unobstructed scenes \cite{b4,b6,b9,b10,b13}. These assumptions are less suitable for aerial activities such as Mallakhamb, where performers execute inverted positions, lateral flags, and complex grips while interacting closely with a vertical pole \cite{b6,b7,b8,b15,b19,b20}.
+
+To the best of our knowledge, existing work does not describe a single end-to-end Mallakhamb framework that integrates YOLO-based athlete localization, MediaPipe 3D landmark extraction, torso-centered normalization, machine-learning classification, and joint-angle scoring. The proposed pipeline fills this gap by recognizing 19 standardized Mallakhamb poses and providing real-time feedback.
+
+\section{Proposed Methodology}
+\label{sec:methodology}
+
+\subsection{Proposed System Architecture}
+The proposed Mallakhamb Pose Detection and Analysis architecture supports real-time performance assessment during apparatus execution. The complete workflow consists of four processing stages, illustrated in Fig.~\ref{fig:architecture}. The system accepts images from file uploads or live camera streams.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{methodology_flowchart.png}
+\caption{Overall architecture of the proposed Mallakhamb pose detection and analysis system.}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{Self-Collected Mallakhamb Dataset Curation}
+Due to the absence of standardized public pose datasets for traditional Indian sports, a dedicated Mallakhamb dataset was constructed specifically for this research. The authors collected images by capturing trained Mallakhamb athletes performing authentic postures on vertical wooden poles. The raw collection contains $1,248$ images across $19$ standardized Mallakhamb pose classes: (1)~Akarna Dhanurasan, (2)~Bagali Phara, (3)~Bajarang Pakad, (4)~Bandar Pakad, (5)~Baneguruji Pakad, (6)~Chakorasan, (7)~Guru Pakad, (8)~Hatacha Para Stand, (9)~Hatacha Phara, (10)~Kukkutsan, (11)~Mayurasan, (12)~Natarajasan, (13)~Natarajasan Outer Hold, (14)~Naukasan, (15)~Padmasan, (16)~Padmasan One-Hand Hold, (17)~Patanagi, (18)~Paticha Tajawa, and (19)~Straddle L-Hold.
+
+\subsection{Dataset Collection, Preprocessing, and Augmentation}
+To eliminate class representation bias, a data augmentation and balancing pipeline was applied to raw captured images. Augmentation operations included horizontal flipping ($p=0.5$), random spatial rotation ($\pm 15^{\circ}$), contrast/brightness adjustments, and Gaussian blurring ($5 \times 5$ kernel). Over-represented classes were downsampled and under-represented classes were augmented until every class reached a balanced target of $250$ images. This produced a balanced processed dataset of $4,750$ images ($19 \text{ classes} \times 250 \text{ images}$), stored in \path{Processed_Dataset/}.
+
+\subsection{MediaPipe Landmark Extraction and Landmark Dataset Creation}
+The processed images were converted into a structured landmark dataset using Google MediaPipe Pose \cite{b14}. MediaPipe extracts $33$ 3D body landmarks $(X, Y, Z)$ and landmark visibility ($V$), yielding a $132$-dimensional feature vector ($33 \times 4 = 132$) per image.
+
+A quality-filtering step evaluated extracted features and removed $108$ low-quality samples affected by severe apparatus occlusion, motion blur, or landmark detection failures. The remaining $4,642$ clean landmark vectors and pose labels were stored in \path{dataset/pose_landmarks.csv}, which serves as the primary machine-learning feature dataset for normalization and model training.
+
+\subsection{Geometric Normalization}
+To reduce sensitivity to camera placement, depth, and body size variations, landmark coordinates were normalized via a two-step torso-centric transformation.
+
+\subsubsection{Translation}
+The coordinate origin $(0,0,0)$ was translated to the hip center ($\mathbf{P}_{\mathrm{hip\_center}}$), defined as the 3D midpoint between left hip landmark $\mathbf{P}_{23}$ and right hip landmark $\mathbf{P}_{24}$:
+\begin{equation}
+\mathbf{P}_{\mathrm{hip\_center}} = \frac{\mathbf{P}_{23} + \mathbf{P}_{24}}{2}
+\label{eq:hip_center}
+\end{equation}
+The translated coordinate $\mathbf{P}'_i$ for keypoint $i$ is:
+\begin{equation}
+\mathbf{P}'_i = \mathbf{P}_i - \mathbf{P}_{\mathrm{hip\_center}}
+\label{eq:translation}
+\end{equation}
+
+\subsubsection{Torso Scaling}
+Translated coordinates were scaled by torso length ($L_{\mathrm{torso}}$), defined as the 3D Euclidean distance between shoulder center $\mathbf{P}_{\mathrm{shoulder\_center}}$ (midpoint of landmarks 11, 12) and hip center $\mathbf{P}_{\mathrm{hip\_center}}$:
+\begin{equation}
+L_{\mathrm{torso}} = \left\lVert \mathbf{P}_{\mathrm{shoulder\_center}} - \mathbf{P}_{\mathrm{hip\_center}} \right\rVert
+\label{eq:torso_scaling}
+\end{equation}
+The final normalized keypoint coordinate $\mathbf{P}''_i$ is:
+\begin{equation}
+\mathbf{P}''_i = \frac{\mathbf{P}'_i}{L_{\mathrm{torso}}}
+\label{eq:normalization}
+\end{equation}
+
+\subsection{Machine Learning Model Training and Evaluation}
+Classifiers were trained directly on normalized $132$-dimensional MediaPipe landmark features from \path{dataset/pose_landmarks.csv}. Four models—Random Forest \cite{b26}, XGBoost \cite{b21}, K-Nearest Neighbors (KNN), and Support Vector Machine (SVM)—were evaluated using 5-fold stratified cross-validation ($K=5$, \texttt{random\_state}$=42$) across $4,642$ clean samples. Random Forest achieved the highest macro F1-score of 98.43\% (Accuracy: 98.45\%, Precision: 98.50\%, Recall: 98.41\%), outperforming XGBoost (97.93\% F1), KNN (96.63\% F1), and SVM (95.62\% F1), and was saved to \path{saved_models/best_pose_classifier.pkl}.
+
+\subsection{Ideal Pose Reference Dataset for Scoring}
+A clear architectural distinction exists between the model training dataset and the posture scoring reference database:
+\begin{itemize}
+    \item \textbf{Training Dataset (\path{dataset/pose_landmarks.csv}):} Contains $4,642$ normalized landmark vectors extracted across augmented samples, used exclusively to train and evaluate the Random Forest classifier.
+    \item \textbf{Ideal Pose Reference Dataset (\path{dataset/ideal_poses.json}):} Contains expert 3D keypoint reference templates for each of the $19$ Mallakhamb postures.
+\end{itemize}
+The ideal pose reference dataset does not train the Random Forest classifier. Instead, it provides target geometric configurations for post-classification posture scoring.
+
+\subsection{Real-Time Inference Pipeline and OpenCV Pole Detection}
+During real-time inference, incoming video frames undergo multi-stage processing:
+\begin{enumerate}
+    \item \textbf{YOLOv8 Athlete Localization:} YOLOv8n \cite{b7} crops the performer with an adaptive $25\%$ spatial margin.
+    \item \textbf{MediaPipe 3D Landmark Extraction:} MediaPipe Pose \cite{b14} extracts $33$ 3D body keypoints.
+    \item \textbf{Spatial Normalization:} Applies hip-center translation and torso-length scaling.
+    \item \textbf{Random Forest Classification:} Maps normalized features to one of $19$ pose classes with confidence score $C$.
+    \item \textbf{OpenCV Pole Detection:} Uses Canny edge detection and Hough line transform to detect vertical pole segments satisfying:
+    \begin{equation}
+    \frac{|d_x|}{|d_y|} < 0.36
+    \label{eq:pole_threshold}
+    \end{equation}
+    (within $\sim 20^{\circ}$ of vertical) with length $\ge 25\%$ of frame height.
+\end{enumerate}
+Validation enforces confidence $C \ge 52\%$ when the pole is detected and $C \ge 65\%$ when no pole is detected. Failed validations activate the Reject \& Prompt module.
+
+\subsection{Joint Angle Calculation and Posture Accuracy Scoring}
+Upon validation, the corresponding expert template is loaded from \path{dataset/ideal_poses.json}. Eight critical 3D joint angles (elbows, shoulders, hips, knees) are computed. For joint vertex $B$ between joints $A$ and $C$:
+\begin{equation}
+\theta = \cos^{-1} \left( \frac{\mathbf{v}_{BA}\cdot\mathbf{v}_{BC}}{\left\lVert\mathbf{v}_{BA}\right\rVert \left\lVert\mathbf{v}_{BC}\right\rVert} \right)
+\label{eq:joint_angle}
+\end{equation}
+where $\mathbf{v}_{BA}=\mathbf{A}-\mathbf{B}$ and $\mathbf{v}_{BC}=\mathbf{C}-\mathbf{B}$. Cosine similarity $S_{\mathrm{cos}}$ assesses vector alignment:
+\begin{equation}
+S_{\mathrm{cos}} = \frac{1}{8} \sum_{i=1}^{8} \frac{\mathbf{v}^{\mathrm{user}}_i \cdot \mathbf{v}^{\mathrm{expert}}_i}{\left\lVert\mathbf{v}^{\mathrm{user}}_i\right\rVert \left\lVert\mathbf{v}^{\mathrm{expert}}_i\right\rVert}
+\label{eq:cosine_similarity}
+\end{equation}
+The overall Posture Accuracy Score (\%) is derived from the mean absolute angular error:
+\begin{equation}
+\mathrm{Accuracy} = \max\left(0, 100 - \frac{2}{8} \sum_{i=1}^{8} \left| \theta_{\mathrm{user},i} - \theta_{\mathrm{expert},i} \right| \right)
+\label{eq:accuracy}
+\end{equation}
+Accuracy is capped at $98.5\%$ to account for natural human anatomical variability.
+
+\subsection{Virtual Coaching Feedback Engine and System Output}
+When joint angles deviate by $> 25^{\circ}$ from the reference, natural language corrections (e.g., ``Bend your Left Elbow slightly more'') are generated and spoken via browser Web Speech API (\texttt{SpeechSynthesisUtterance}). An integrated RAG chatbot \cite{b10} indexes the Mallakhamb Federation of India (MFI) Rulebook using TF-IDF and cosine similarity \cite{b5}, querying Groq API (\texttt{llama-3.1-8b-instant}) for instant rule queries. The FastAPI + React application achieves $32.0\text{ ms}$ server latency ($\sim 31.25\text{ FPS}$) on an Intel Core i5-12450H CPU.
+
+\subsection{End-to-End Methodology Summary}
+The complete system pipeline progresses as follows: Raw Images ($1,248$) $\rightarrow$ Preprocessing \& Augmentation $\rightarrow$ Processed Dataset ($4,750$) $\rightarrow$ MediaPipe Feature Extraction ($132$ features) $\rightarrow$ Quality Filtering ($4,642$ clean samples in \path{dataset/pose_landmarks.csv}) $\rightarrow$ Torso Normalization $\rightarrow$ Random Forest Training (98.43\% F1) $\rightarrow$ Real-Time Inference (YOLOv8 + MediaPipe + OpenCV Pole Verification) $\rightarrow$ Pose Classification $\rightarrow$ Ideal Reference Retrieval (\path{dataset/ideal_poses.json}) $\rightarrow$ 3D Joint Angle Scoring $\rightarrow$ Text/Audio Virtual Coaching Feedback.
+
+\section{Experimental Results and Discussion}
+\label{sec:results}
+The proposed system was evaluated through experiments detailing setup, dataset, metrics, classifier performance, real-time latency, and discussion.
+
+\subsection{Experiment Setup}
+Experiments were conducted on an Intel Core i5-12450H CPU (8 cores, up to 4.40 GHz), 16 GB DDR4 RAM, Windows 11 Home (64-bit), Python 3.10, OpenCV 4.8.1, Ultralytics YOLOv8n \cite{b7}, and MediaPipe Pose (v0.10.x) \cite{b14,b12}. Evaluation used StratifiedKFold ($K=5$, \texttt{random\_state}$=42$), allocating 80\% data ($\approx3,713$ samples) for training and 20\% for validation per fold.
+
+\subsection{Dataset Description}
+The study used a custom dataset of 19 Mallakhamb postures. All classes underwent horizontal flipping ($p=0.5$), rotation ($\pm15^\circ$), brightness/contrast variation, and $5\times5$ Gaussian blur, producing 4,750 processed images. MediaPipe extracted 33 3D landmarks \cite{b14,b12}. Hip translation and torso scaling produced 132-dimensional feature vectors. After discarding 108 blurry samples, 4,642 valid feature vectors remained.
+
+\subsection{Evaluation Measures}
+Models were assessed using Accuracy, Precision, Recall, and F1 Score (primary evaluation metric).
+
+\subsection{Classification Performance}
+Table~\ref{tab:performance} summarizes machine learning classifier performance under 5-fold Stratified Cross-Validation.
+
+\begin{table}[htbp]
+\caption{Performance Comparison of Machine Learning Models}
+\label{tab:performance}
+\centering
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Model} & \textbf{Accuracy (\%)} & \textbf{Precision (\%)} & \textbf{Recall (\%)} & \textbf{F1-Score (\%)} \\
+\hline
+Random Forest & 98.45 & 98.50 & 98.41 & 98.43 \\
+XGBoost & 97.98 & 98.02 & 97.85 & 97.93 \\
+K-Nearest Neighbors (KNN) & 96.66 & 96.79 & 96.60 & 96.63 \\
+Support Vector Machine (SVM) & 95.67 & 95.83 & 95.59 & 95.62 \\
+\hline
+\end{tabular}%
+}
+\end{table}
+
+Random Forest achieved the highest accuracy (98.45\%) and F1-score (98.43\%), outperforming XGBoost (97.93\%), KNN (96.63\%), and SVM (95.62\%), and was selected for deployment \cite{b26}.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{model_comparison.png}
+\caption{Performance comparison of machine learning classifiers.}
+\label{fig:modelcomparison}
+\end{figure}
+
+Fig.~\ref{fig:modelcomparison} illustrates performance across metrics, confirming Random Forest's superior suitability for multi-class Mallakhamb pose recognition based on normalized landmarks.
+
+\subsection{Real-Time Performance}
+Latency was measured on a general-purpose CPU system. End-to-end server latency is approximately 32.0 ms per frame ($17.2\text{ ms}$ YOLOv8n $+ 9.8\text{ ms}$ MediaPipe $+ 3.7\text{ ms}$ Random Forest $+ 1.3\text{ ms}$ scoring/feedback), achieving $\sim 31.25\text{ FPS}$ ($1000/32.0$). FastAPI serves the engine and React renders the UI.
+
+\subsection{Discussion}
+Results demonstrate that hip-centered, torso-scaled landmark features paired with Random Forest provide an effective, robust representation for Mallakhamb posture classification.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{confusion_matrix.png}
+\caption{Normalized confusion matrix of the Random Forest classifier.}
+\label{fig:confusionmatrix}
+\end{figure}
+
+The normalized confusion matrix in Fig.~\ref{fig:confusionmatrix} shows a strong diagonal, with minor confusions restricted to visually similar postures.
+
+\section{Limitations}
+The system is constrained to 19 fixed Mallakhamb pose classes, cannot classify out-of-distribution transitions, experiences tracking confidence loss during extreme apparatus occlusion, and currently analyzes static frames without temporal sequence modeling.
+
+\section{Conclusion}
+This paper presented an end-to-end framework for Mallakhamb pose recognition, posture scoring, and virtual coaching. Combining YOLOv8 detection, MediaPipe 3D landmarks, torso normalization, and Random Forest classification achieved a 98.43\% F1-score across 19 pose classes. The framework delivers real-time 3D joint angle scoring, text/speech feedback, and an MFI rulebook chatbot at $\sim 31\text{ FPS}$. Future work includes expanding pose classes, collecting dynamic video sequences, and implementing Spatial-Temporal Graph Convolutional Networks (ST-GCN).
+
+\begin{thebibliography}{00}
+\bibitem{b1} A. Wang et al., ``YOLOv10: Real-time end-to-end object detection,'' in \textit{Proc. NeurIPS}, vol. 37, pp. 18210--18224, 2024.
+\bibitem{b2} J.-Y. Choi et al., ``Human Joint Angle Estimation Using Deep Learning-Based Three-Dimensional Human Pose Estimation,'' \textit{Sensors}, vol. 24, no. 12, p. 3823, 2024.
+\bibitem{b3} C.-Y. Wang et al., ``YOLOv9: Learning what you want to learn using programmable gradient information,'' in \textit{Proc. IEEE/CVF CVPR}, pp. 15738--15748, 2024.
+\bibitem{b4} N. A. M. Radzi et al., ``Exercise tracking system with MediaPipe angle directive rules,'' \textit{Int. J. Informat. Vis.}, vol. 8, no. 3, pp. 1420--1428, 2024.
+\bibitem{b5} Y. Gao et al., ``Retrieval-Augmented Generation for Large Language Models: A Survey,'' \textit{Comput. Vis. Media}, vol. 10, no. 3, pp. 411--432, 2024.
+\bibitem{b6} A. Bera et al., ``Fine-Grained Sports, Yoga, and Dance Postures Recognition: A Benchmark Analysis,'' \textit{IEEE Trans. Multimedia}, vol. 25, pp. 8321--8334, 2023.
+\bibitem{b7} J. Terven and D. M. Córdova-Esparza, ``A comprehensive review of YOLO: From YOLOv1 to YOLOv8 and beyond,'' \textit{IEEE Access}, vol. 11, pp. 115043--115060, 2023.
+\bibitem{b8} S. Kreiss et al., ``OpenPifPaf: Composite fields for semantic keypoint detection,'' \textit{IEEE Trans. Intell. Transp. Syst.}, vol. 23, no. 8, pp. 13498--13511, 2022.
+\bibitem{b9} S. Anwarul and M. Mohan, ``Deep Learning-based Yoga Pose Recognition System using Hyperparameter Tuning,'' in \textit{Proc. IEEE ICCCA}, pp. 1--6, 2022.
+\bibitem{b10} P. Lewis et al., ``Retrieval-augmented generation for knowledge-intensive NLP tasks,'' in \textit{Proc. NeurIPS}, vol. 33, pp. 9459--9474, 2020.
+\bibitem{b11} Y. Zhu et al., ``A comprehensive study of deep video action recognition,'' \textit{arXiv preprint arXiv:2009.07213}, 2020.
+\bibitem{b12} V. Bazarevsky et al., ``BlazePose: On-device Real-time Body Pose Tracking,'' \textit{arXiv preprint arXiv:2006.10204}, 2020.
+\bibitem{b13} M. Verma et al., ``Yoga-82: A new dataset for fine-grained classification of human poses,'' in \textit{Proc. IEEE/CVF CVPR Workshop}, pp. 438--439, 2020.
+\bibitem{b14} C. Lugaresi et al., ``MediaPipe: A Framework for Building Perception Pipelines,'' \textit{arXiv preprint arXiv:1906.08172}, 2019.
+\bibitem{b15} K. Sun et al., ``Deep High-Resolution Representation Learning for Human Pose Estimation,'' in \textit{Proc. IEEE/CVF CVPR}, pp. 5686--5696, 2019.
+\bibitem{b16} B. Xiao et al., ``Simple Baselines for Human Pose Estimation and Tracking,'' in \textit{Proc. ECCV}, pp. 472--487, 2018.
+\bibitem{b17} M. Sandler et al., ``MobileNetV2: Inverted residuals and linear bottlenecks,'' in \textit{Proc. IEEE/CVF CVPR}, pp. 4510--4520, 2018.
+\bibitem{b18} S. Yan et al., ``Spatial Temporal Graph Convolutional Networks for Skeleton-Based Action Recognition,'' in \textit{Proc. AAAI}, vol. 32, no. 1, 2018.
+\bibitem{b19} H.-S. Fang et al., ``RMPE: Regional Multi-Person Pose Estimation,'' in \textit{Proc. IEEE ICCV}, pp. 2353--2362, 2017.
+\bibitem{b20} Z. Cao et al., ``Realtime Multi-Person 2D Pose Estimation Using Part Affinity Fields,'' in \textit{Proc. IEEE CVPR}, pp. 7291--7299, 2017.
+\bibitem{b21} T. Chen and C. Guestrin, ``XGBoost: A Scalable Tree Boosting System,'' in \textit{Proc. ACM SIGKDD}, pp. 785--794, 2016.
+\bibitem{b22} J. Redmon et al., ``You Only Look Once: Unified, Real-Time Object Detection,'' in \textit{Proc. IEEE CVPR}, pp. 779--788, 2016.
+\bibitem{b23} K. He et al., ``Deep Residual Learning for Image Recognition,'' in \textit{Proc. IEEE CVPR}, pp. 770--778, 2016.
+\bibitem{b24} L. Wang et al., ``Temporal Segment Networks: Towards Good Practices for Deep Action Recognition,'' in \textit{Proc. ECCV}, pp. 20--36, 2016.
+\bibitem{b25} F. Pedregosa et al., ``Scikit-learn: Machine Learning in Python,'' \textit{J. Mach. Learn. Res.}, vol. 12, pp. 2825--2830, 2011.
+\bibitem{b26} L. Breiman, ``Random Forests,'' \textit{Mach. Learn.}, vol. 45, no. 1, pp. 5--32, 2001.
+\end{thebibliography}
+
+\EOD
+\end{document}

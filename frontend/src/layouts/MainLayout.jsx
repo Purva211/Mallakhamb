@@ -2,7 +2,7 @@ import React from 'react';
 import { Outlet } from 'react-router-dom';
 import NavigationBar from '../components/Navbar/Navbar';
 import Footer from '../components/Footer/Footer';
-import ChatbotWidget from '../components/layout/ChatbotWidget';
+import FloatingAiCoach from '../components/FloatingAiCoach/FloatingAiCoach';
 
 const MainLayout = () => {
   return (
@@ -12,7 +12,7 @@ const MainLayout = () => {
         <Outlet />
       </main>
       <Footer />
-      <ChatbotWidget />
+      <FloatingAiCoach />
     </div>
   );
 };

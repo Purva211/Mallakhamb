@@ -334,6 +334,19 @@ def compute_cosine_similarity(v1, v2):
         return 0.0
     return float(dot / (norm1 * norm2))
 
+PAIR_INDICES = [
+    (1, 4), (2, 5), (3, 6), (7, 8), (9, 10), (11, 12), (13, 14),
+    (15, 16), (17, 18), (19, 20), (21, 22), (23, 24), (25, 26),
+    (27, 28), (29, 30), (31, 32)
+]
+
+def flip_features(feat_row):
+    pts = np.array(feat_row).reshape(33, 4).copy()
+    pts[:, 0] = -pts[:, 0]
+    for l_idx, r_idx in PAIR_INDICES:
+        pts[[l_idx, r_idx]] = pts[[r_idx, l_idx]]
+    return pts.flatten().tolist()
+
 def draw_skeleton(image_rgb, pose_landmarks):
     h, w, _ = image_rgb.shape
     coords = []
@@ -360,24 +373,62 @@ def process_image_array(image_bgr, model, encoder, ideal_poses, fast_mode=False)
     detection_result = detector.detect(mp_image)
     
     if not detection_result.pose_landmarks or len(detection_result.pose_landmarks) == 0:
-        return {"error": "No human body detected in image. Ensure athlete's full body is visible.", "image": image_rgb}
+        return {
+            "error": "No human body detected in image. Ensure athlete's full body is visible.",
+            "image": image_rgb,
+            "poleDetected": False
+        }
         
     pose_landmarks = detection_result.pose_landmarks[0]
-    features = normalize_landmarks(pose_landmarks)
-    probabilities = model.predict_proba([features])[0]
-    max_prob_index = np.argmax(probabilities)
-    raw_confidence = float(probabilities[max_prob_index])
+    raw_features = normalize_landmarks(pose_landmarks)
+    flipped_features = flip_features(raw_features)
     
+    # Evaluate model predictions for both standard and horizontally flipped orientations
+    probs_raw = model.predict_proba([raw_features])[0]
+    probs_flipped = model.predict_proba([flipped_features])[0]
+    
+    idx_raw = np.argmax(probs_raw)
+    idx_flipped = np.argmax(probs_flipped)
+    
+    conf_raw = float(probs_raw[idx_raw])
+    conf_flipped = float(probs_flipped[idx_flipped])
+    
+    if conf_flipped > conf_raw:
+        max_prob_index = idx_flipped
+        raw_confidence = conf_flipped
+        active_features = flipped_features
+    else:
+        max_prob_index = idx_raw
+        raw_confidence = conf_raw
+        active_features = raw_features
+
     # Draw skeleton overlay
     draw_skeleton(image_rgb, pose_landmarks)
     pole_detected = detect_pole(image_bgr, pose_landmarks)
     
     raw_class_name = encoder.classes_[max_prob_index]
     display_pose_name = POSE_NAME_MAP.get(raw_class_name, raw_class_name.replace("_", " "))
-    user_angles = extract_angles(features)
+    user_angles = extract_angles(active_features)
     
-    # Rejection threshold for non-human / completely garbage poses
-    CONFIDENCE_THRESHOLD = 0.25
+    # Rejection threshold tuned for live streaming (fast_mode) and static image analysis
+    CONFIDENCE_THRESHOLD = 0.15 if fast_mode else 0.22
+    
+    # Enforce pole detection: If no pole/rope is detected, do not classify as a Mallakhamb pose
+    if not pole_detected:
+        return {
+            "unrecognized": True,
+            "pose": "No Pole Detected",
+            "raw_pose": "None",
+            "confidence": 0.0,
+            "accuracy": 0.0,
+            "grade": "N/A",
+            "feedback": [
+                "No vertical Mallakhamb pole or rope detected in frame.",
+                "Ensure the apparatus is clearly visible to track poses."
+            ],
+            "poleDetected": False,
+            "image": image_rgb
+        }
     
     if raw_confidence < CONFIDENCE_THRESHOLD:
         return {
@@ -402,8 +453,22 @@ def process_image_array(image_bgr, model, encoder, ideal_poses, fast_mode=False)
             best_accuracy = -1
             best_ideal_angles = None
             for ideal_feat in ideal_features:
-                cos_sim = compute_cosine_similarity(features, ideal_feat)
-                ideal_angles = extract_angles(ideal_feat)
+                for target_feat in [ideal_feat, flip_features(ideal_feat)]:
+                    cos_sim = compute_cosine_similarity(active_features, target_feat)
+                    ideal_angles = extract_angles(target_feat)
+                    angle_acc = calculate_accuracy(user_angles, ideal_angles)
+                    combined = (cos_sim * 60.0) + (angle_acc * 0.40)
+                    if combined > best_accuracy:
+                        best_accuracy = combined
+                        best_ideal_angles = ideal_angles
+            ideal_angles = best_ideal_angles
+            accuracy_score = round(min(98.5, max(45.0, best_accuracy)), 1)
+        else:
+            best_accuracy = -1
+            best_ideal_angles = None
+            for target_feat in [ideal_features, flip_features(ideal_features)]:
+                cos_sim = compute_cosine_similarity(active_features, target_feat)
+                ideal_angles = extract_angles(target_feat)
                 angle_acc = calculate_accuracy(user_angles, ideal_angles)
                 combined = (cos_sim * 60.0) + (angle_acc * 0.40)
                 if combined > best_accuracy:
@@ -411,12 +476,6 @@ def process_image_array(image_bgr, model, encoder, ideal_poses, fast_mode=False)
                     best_ideal_angles = ideal_angles
             ideal_angles = best_ideal_angles
             accuracy_score = round(min(98.5, max(45.0, best_accuracy)), 1)
-        else:
-            cos_sim = compute_cosine_similarity(features, ideal_features)
-            ideal_angles = extract_angles(ideal_features)
-            angle_acc = calculate_accuracy(user_angles, ideal_angles)
-            combined = (cos_sim * 60.0) + (angle_acc * 0.40)
-            accuracy_score = round(min(98.5, max(45.0, combined)), 1)
             
         grade = get_grade(accuracy_score)
         feedback_list = generate_feedback(user_angles, ideal_angles, threshold=25)
@@ -424,6 +483,11 @@ def process_image_array(image_bgr, model, encoder, ideal_poses, fast_mode=False)
         accuracy_score = round(raw_confidence * 100.0, 1)
         grade = get_grade(accuracy_score)
         feedback_list = ["Maintain steady posture on pole."]
+
+    # Incorporate pole detection logic feedback
+    if not pole_detected:
+        if "Pole/Rope not clearly visible; ensure full apparatus is in frame." not in feedback_list:
+            feedback_list.append("Pole/Rope not clearly visible; ensure full apparatus is in frame.")
 
     honest_confidence = round(raw_confidence * 100.0, 1)
 

@@ -170,6 +170,9 @@ async def detect_image(image: UploadFile = File(...)):
     result = process_image_array(image_bgr, model, encoder, ideal_poses, fast_mode=False)
     return format_prediction_response(result)
 
+from collections import deque
+frame_history = deque(maxlen=3)
+
 @app.post("/api/detect/frame")
 async def detect_frame(payload: FramePayload):
     if model is None:
@@ -183,6 +186,27 @@ async def detect_frame(payload: FramePayload):
         raise HTTPException(status_code=400, detail=f"Invalid base64 frame: {e}")
 
     result = process_image_array(image_bgr, model, encoder, ideal_poses, fast_mode=True)
+    
+    # Live frame temporal smoothing buffer to stabilize posture recognition across streaming frames
+    frame_history.append(result)
+    
+    if result.get("unrecognized") and len(frame_history) >= 3:
+        # Check if the 2 preceding frames were valid and identical
+        prev_results = list(frame_history)[:-1]
+        valid_poses = [f["pose"] for f in prev_results if not f.get("unrecognized") and not f.get("error")]
+        
+        if len(valid_poses) == 2 and valid_poses[0] == valid_poses[1]:
+            last_valid = prev_results[-1]
+            result["pose"] = last_valid["pose"]
+            result["raw_pose"] = last_valid.get("raw_pose", "")
+            result["confidence"] = round(max(35.0, float(last_valid.get("confidence", 35.0)) * 0.9), 1)
+            result["accuracy"] = last_valid.get("accuracy", 0.0)
+            result["grade"] = last_valid.get("grade", "N/A")
+            result["feedback"] = last_valid.get("feedback", [])
+            result.pop("unrecognized", None)
+            if "poleDetected" in last_valid:
+                result["poleDetected"] = last_valid["poleDetected"]
+
     return format_prediction_response(result)
 
 @app.post("/api/video/upload")

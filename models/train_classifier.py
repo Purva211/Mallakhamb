@@ -36,6 +36,19 @@ plt.rcParams['grid.color'] = '#e0e0e0'
 plt.rcParams['grid.linestyle'] = '--'
 plt.rcParams['grid.alpha'] = 0.7
 
+PAIR_INDICES = [
+    (1, 4), (2, 5), (3, 6), (7, 8), (9, 10), (11, 12), (13, 14),
+    (15, 16), (17, 18), (19, 20), (21, 22), (23, 24), (25, 26),
+    (27, 28), (29, 30), (31, 32)
+]
+
+def flip_features(feat_row):
+    pts = np.array(feat_row).reshape(33, 4).copy()
+    pts[:, 0] = -pts[:, 0]
+    for l_idx, r_idx in PAIR_INDICES:
+        pts[[l_idx, r_idx]] = pts[[r_idx, l_idx]]
+    return pts.flatten()
+
 def main():
     print("Loading dataset...")
     df = pd.read_csv(DATASET_PATH)
@@ -45,8 +58,15 @@ def main():
         return
 
     # Separate features and labels
-    X = df.drop('label', axis=1).values
-    y_labels = df['label'].values
+    X_orig = df.drop('label', axis=1).values
+    y_labels_orig = df['label'].values
+
+    print("Applying horizontal landmark flip data augmentation...")
+    X_flipped = np.array([flip_features(row) for row in X_orig])
+    y_labels_flipped = y_labels_orig.copy()
+
+    X = np.vstack([X_orig, X_flipped])
+    y_labels = np.concatenate([y_labels_orig, y_labels_flipped])
     
     # Encode labels
     le = LabelEncoder()
@@ -54,7 +74,7 @@ def main():
     classes = le.classes_
     num_classes = len(classes)
     clean_classes = [c.replace('_', ' ').replace(' -Dhnurasan', ' Dhanurasan') for c in classes]
-    print(f"Found {num_classes} distinct poses with {len(X)} total sample instances.")
+    print(f"Found {num_classes} distinct poses with {len(X)} total sample instances (including augmented flips).")
 
     # Initialize models
     models = {
